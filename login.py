@@ -72,7 +72,7 @@ def main() -> None:
         lng=lng,
         device_id=device_id,
     )
-    client = IMaotaiClient(placeholder)
+    client = IMaotaiClient(placeholder, proxy_pools=cfg.proxy_pools)
 
     ok, msg = client.send_vcode(mobile)
     if not ok:

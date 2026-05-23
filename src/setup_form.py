@@ -111,7 +111,7 @@ def run_account_setup(cfg: AppConfig) -> None:
         lng=old.lng if old else "112.94",
         device_id=device_id,
     )
-    client = IMaotaiClient(placeholder)
+    client = IMaotaiClient(placeholder, proxy_pools=cfg.proxy_pools)
 
     if old and old.token and Confirm.ask("已有登录，是否重新获取短信验证码登录?", default=False):
         token, user_id = old.token, old.user_id
@@ -134,8 +134,10 @@ def run_account_setup(cfg: AppConfig) -> None:
 
         import time
 
-        console.print("[dim]2 秒后提交登录…[/]")
-        time.sleep(2)
+        console.print(
+            "[dim]收到短信后再输入验证码；输入完成后约 5 秒提交登录（避免与发码挤在同一秒）。[/]"
+        )
+        time.sleep(5)
 
         with console.status("[green]登录 i茅台…[/]"):
             try:

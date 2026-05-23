@@ -33,6 +33,22 @@ class ScheduleConfig:
     target_time: str = "09:00:00"
     advance_seconds: int = 2
     run_immediately_if_missed: bool = False
+    prewarm_minutes: int = 0
+    wave_times: list[str] | None = None
+    wave_retry_failed_only: bool = True
+
+
+@dataclass
+class AntidetectConfig:
+    """反检测（龙蒙超版能力 + 本版可配置开关）。"""
+
+    enabled: bool = True
+    random_ua: bool = True
+    random_network_type: bool = True
+    random_mt_info: bool = False
+    warmup_before_reserve: bool = True
+    claim_energy_probability: float = 0.3
+    jitter_seconds: float = 3.0
 
 
 @dataclass
@@ -41,6 +57,8 @@ class AppConfig:
     amap_key: str
     items: list[ItemConfig]
     shop_strategy: str
+    shop_scope: str
+    shop_fallback: bool
     claim_energy: bool
     schedule: ScheduleConfig
     retry_count: int
@@ -48,6 +66,11 @@ class AppConfig:
     pushplus_token: str
     session_wait_seconds: int
     session_poll_interval: int
+    account_stagger_seconds: float
+    proxy_pools: dict[str, str]
+    max_accounts_per_egress: int
+    egress_group_stagger_seconds: float
+    antidetect: AntidetectConfig
 
 
 @dataclass
@@ -66,6 +89,10 @@ class AccountCredentials:
     district: str = ""
     detail_address: str = ""
     pay_password: str = ""  # 可选：支付密码备注（本地加密，i茅台登录仍用短信）
+    shop_id: str = ""  # 可选：优先预约该门店（不支持时按 shop_fallback 换店）
+    shop_strategy: str = ""  # 可选：覆盖全局 shop_strategy
+    proxy_url: str = ""  # 可选：本账号专用代理 http://或 socks5://
+    egress_group: str = ""  # 可选：出口分组名，对应 config.proxy_pools
 
 
 def validate_secret_key(secret_key: str) -> None:
@@ -101,23 +128,44 @@ def load_config() -> AppConfig:
     sched = raw.get("schedule", {}) or {}
     retry = raw.get("retry", {}) or {}
     session_cfg = raw.get("session", {}) or {}
+    wave_raw = sched.get("wave_times")
+    wave_times = [str(t) for t in wave_raw] if wave_raw else None
+    ad = raw.get("antidetect", {}) or {}
 
     return AppConfig(
         secret_key=str(raw.get("secret_key", "")),
         amap_key=str(raw.get("amap_key", "")),
         items=items,
         shop_strategy=str(raw.get("shop_strategy", "max_inventory")),
+        shop_scope=str(raw.get("shop_scope", "city")),
+        shop_fallback=bool(raw.get("shop_fallback", True)),
         claim_energy=bool(raw.get("claim_energy", True)),
         schedule=ScheduleConfig(
             target_time=str(sched.get("target_time", "09:00:00")),
             advance_seconds=int(sched.get("advance_seconds", 2)),
             run_immediately_if_missed=bool(sched.get("run_immediately_if_missed", False)),
+            prewarm_minutes=int(sched.get("prewarm_minutes", 0)),
+            wave_times=wave_times,
+            wave_retry_failed_only=bool(sched.get("wave_retry_failed_only", True)),
         ),
         retry_count=int(retry.get("count", 3)),
         retry_interval=float(retry.get("interval_seconds", 0.5)),
         pushplus_token=str(raw.get("pushplus_token", "")),
         session_wait_seconds=int(session_cfg.get("wait_seconds", 120)),
         session_poll_interval=int(session_cfg.get("poll_interval_seconds", 5)),
+        account_stagger_seconds=float(raw.get("account_stagger_seconds", 0)),
+        proxy_pools={str(k): str(v) for k, v in (raw.get("proxy_pools") or {}).items()},
+        max_accounts_per_egress=int(raw.get("max_accounts_per_egress", 0)),
+        egress_group_stagger_seconds=float(raw.get("egress_group_stagger_seconds", 2)),
+        antidetect=AntidetectConfig(
+            enabled=bool(ad.get("enabled", True)),
+            random_ua=bool(ad.get("random_ua", True)),
+            random_network_type=bool(ad.get("random_network_type", True)),
+            random_mt_info=bool(ad.get("random_mt_info", False)),
+            warmup_before_reserve=bool(ad.get("warmup_before_reserve", True)),
+            claim_energy_probability=float(ad.get("claim_energy_probability", 0.3)),
+            jitter_seconds=float(ad.get("jitter_seconds", 3.0)),
+        ),
     )
 
 
@@ -161,6 +209,10 @@ def load_credentials(secret_key: str) -> list[AccountCredentials]:
                 district=row.get("district", ""),
                 detail_address=_opt_decrypt("detail_address"),
                 pay_password=_opt_decrypt("pay_password"),
+                shop_id=str(row.get("shop_id", "") or ""),
+                shop_strategy=str(row.get("shop_strategy", "") or ""),
+                proxy_url=str(row.get("proxy_url", "") or row.get("proxy", "") or ""),
+                egress_group=str(row.get("egress_group", "") or ""),
             )
         )
 
@@ -196,6 +248,10 @@ def save_credentials(accounts: list[AccountCredentials], secret_key: str) -> Non
                 "district": a.district,
                 "detail_address": _enc_optional(a.detail_address),
                 "pay_password": _enc_optional(a.pay_password),
+                "shop_id": a.shop_id or "",
+                "shop_strategy": a.shop_strategy or "",
+                "proxy_url": a.proxy_url or "",
+                "egress_group": a.egress_group or "",
             }
             for a in accounts
         ],

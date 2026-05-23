@@ -14,17 +14,65 @@ items:
   - code: "10942"
     name: "飞天茅台100ml"
 
-# 门店策略: max_inventory=本市该商品库存最大(推荐) | nearest=距离最近
+# 门店策略（参考网易攻略 + ken-iMoutai-Script）:
+#   max_inventory    = 本市/省内库存最大（默认，开源 INVENTORY）
+#   min_competition  = 可预约门店中库存偏小（避开最热门店，网易攻略）
+#   nearest          = 距离最近（开源 NEAREST）
+# 账号可在 credentials 里单独设 shop_id / shop_strategy 覆盖
 shop_strategy: max_inventory
 
-# 是否在预约前领取小茅运/耐力（部分账号有助于活跃度）
+# 选店范围: city=仅本市 | province=全省门店
+shop_scope: city
+
+# 指定门店不可用或报错时，是否自动换店（ken 脚本同类逻辑）
+shop_fallback: true
+
+# 多账号依次预约间隔（秒），降低同 IP 瞬时并发，建议 0.3~2
+account_stagger_seconds: 0.5
+
+# 换出口组时额外等待（秒），避免多组共用一个代理时打满
+egress_group_stagger_seconds: 3
+
+# ---------- IP 隔离（1000 号必读 docs/IP隔离部署指南.md）----------
+# 出口组名 → 代理 URL；账号 credentials 里写 egress_group: ip001
+# 1000 号建议每 20 号一组 → 约 50 个代理/50 个热点
+# proxy_pools:
+#   ip001: "http://user:pass@1.2.3.4:8080"
+#   ip002: "socks5://user:pass@5.6.7.8:1080"
+proxy_pools: {}
+
+# 分配脚本建议每组人数: python scripts/assign_egress_groups.py --per-group 20
+max_accounts_per_egress: 20
+
+# 是否在预约前领取小茅运/耐力（账号活跃度，需 App 内配合签到）
 claim_energy: true
+
+# ---------- 反检测（合并龙蒙超版，与本版捡漏/IP 并存）----------
+# enabled=false 可恢复为固定设备指纹（调试用）
+antidetect:
+  enabled: true
+  random_ua: true
+  random_network_type: true
+  # 真机 MT-Info 通常固定；随机可能触发风控，默认关闭
+  random_mt_info: false
+  warmup_before_reserve: true
+  # claim_energy=true 时，按概率领取（0.3=约 30%），避免每天固定模式
+  claim_energy_probability: 0.3
+  # 多账号预约时间错峰（秒），与 account_stagger_seconds 二选一优先
+  jitter_seconds: 3.0
 
 # 定时：每天在此时间前 N 秒发起预约（申购窗口约 9:00-10:00）
 schedule:
   target_time: "09:00:00"
   advance_seconds: 2
-  # 若已过 target_time 是否仍立即执行（试跑 / 手动测试）
+  # 提前 N 分钟预拉门店/session（减轻 9:00 整点压力）
+  prewarm_minutes: 5
+  # 捡漏波次：9:05/9:10/9:15 重试未成功项（网易攻略「五分钟节点」）
+  wave_times:
+    - "09:05:00"
+    - "09:10:00"
+    - "09:15:00"
+  wave_retry_failed_only: true
   run_immediately_if_missed: false
 
 # 交互 CLI: python cli.py
@@ -36,7 +84,7 @@ session:
   wait_seconds: 120
   poll_interval_seconds: 5
 
-# 失败重试
+# 失败重试（单轮内）
 retry:
   count: 3
   interval_seconds: 0.5

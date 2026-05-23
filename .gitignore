@@ -7,3 +7,17 @@ data/*
 !data/.gitkeep
 *.log
 .env
+*.apk
+*.apk.*
+base.apk*
+reverse/apk_unzip/
+reverse/jadx_out/
+备份-合并前-*/
+龙蒙超版本/
+0577f5ed*/
+07730dc1*/
+277be3e6*/
+7539cbed*/
+8e60251d*/
+9b585934*/
+c46ebe37*/

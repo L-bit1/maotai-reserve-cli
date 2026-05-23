@@ -12,10 +12,19 @@ from typing import Any
 
 import requests
 
-from .config_loader import AccountCredentials
+from .config_loader import AccountCredentials, AntidetectConfig, mask_mobile
 from .crypto import ActParamEncryptor, request_signature
-from .device_util import make_mt_r, make_request_id, normalize_device_id
+from .device_util import (
+    DEFAULT_MT_INFO,
+    generate_mt_info,
+    make_mt_r,
+    make_request_id,
+    normalize_device_id,
+    random_network_type,
+    random_ua,
+)
 from .exceptions import AuthError, RateLimitError, SessionNotReadyError
+from .proxy_util import build_requests_proxies, mask_proxy_url, resolve_account_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +44,37 @@ def fetch_app_version() -> str:
         return r.json()["results"][0]["version"]
     except Exception as e:
         logger.warning("无法从 App Store 获取版本号，使用默认 1.8.0: %s", e)
-        return "1.8.0"
+        return "1.9.6"  # 与 base.apk 逆向版本一致，抓包失败时的兜底
 
 
 class IMaotaiClient:
-    def __init__(self, account: AccountCredentials, app_version: str | None = None):
+    def __init__(
+        self,
+        account: AccountCredentials,
+        app_version: str | None = None,
+        *,
+        proxy_pools: dict[str, str] | None = None,
+        antidetect: AntidetectConfig | None = None,
+    ):
         self.account = account
         self.app_version = app_version or fetch_app_version()
+        self.antidetect = antidetect or AntidetectConfig(enabled=False)
         self.session_id: str | None = None
         self._session = requests.Session()
+        self._proxy_url = resolve_account_proxy(
+            account.proxy_url,
+            account.egress_group,
+            proxy_pools or {},
+        )
+        proxies = build_requests_proxies(self._proxy_url)
+        if proxies:
+            self._session.proxies.update(proxies)
+            logger.info(
+                "%s 出口 [%s] 代理 %s",
+                mask_mobile(account.mobile),
+                account.egress_group or "-",
+                mask_proxy_url(self._proxy_url),
+            )
         self._init_headers()
 
     def _init_headers(self) -> None:
@@ -54,19 +85,33 @@ class IMaotaiClient:
         except Exception:
             mt_r = "clips_OlU6TmFRag5rCXwbNAQ/Tz1SKlN8THcecBp/HGhHdw=="
 
+        ad = self.antidetect
+        use_ad = ad.enabled
+        mt_info = (
+            generate_mt_info()
+            if use_ad and ad.random_mt_info
+            else DEFAULT_MT_INFO
+        )
+        network = (
+            random_network_type()
+            if use_ad and ad.random_network_type
+            else "WIFI"
+        )
+        ua = random_ua() if use_ad and ad.random_ua else "iOS;17.0;Apple;iPhone15,2"
+
         self._headers = {
             "Host": APP_HOST,
             "Accept": "*/*",
             "MT-User-Tag": "0",
-            "MT-Network-Type": "WIFI",
+            "MT-Network-Type": network,
             "MT-Token": self.account.token or "",
             "MT-Team-ID": "",
-            "MT-Info": "028e7f96f6369cafe1d105579c5b9377",
+            "MT-Info": mt_info,
             "MT-Device-ID": device,
             "MT-Bundle-ID": "com.moutai.mall",
             "Accept-Language": "zh-CN,zh-Hans;q=0.9",
             "MT-APP-Version": self.app_version,
-            "User-Agent": f"iOS;17.0;Apple;iPhone15,2",
+            "User-Agent": ua,
             "MT-R": mt_r,
             "Content-Type": "application/json; charset=UTF-8",
             "Connection": "keep-alive",
@@ -83,6 +128,35 @@ class IMaotaiClient:
         h["userId"] = "0"
         h["MT-Request-ID"] = make_request_id()
         return h
+
+    def warmup(self) -> None:
+        """模拟 App 打开后的浏览（龙蒙超版）；失败不阻断主流程。"""
+        if not self.antidetect.enabled or not self.antidetect.warmup_before_reserve:
+            return
+        logger.info("%s 行为预热…", mask_mobile(self.account.mobile))
+        try:
+            self._session.get(
+                f"https://{H5_HOST}/gux/game/main?appConfig=2_1_2",
+                headers={
+                    "User-Agent": self._headers.get("User-Agent", random_ua()),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                },
+                timeout=10,
+            )
+        except Exception:
+            pass
+        time.sleep(random.uniform(0.4, 1.2))
+        for path in ("/xhr/front/user/info", "/xhr/front/user/getUserInfo"):
+            try:
+                self._session.get(
+                    f"https://{APP_HOST}{path}",
+                    headers=self._headers,
+                    timeout=10,
+                )
+            except Exception:
+                pass
+            time.sleep(random.uniform(0.3, 0.9))
 
     @staticmethod
     def _parse_api_message(resp: requests.Response) -> str:
@@ -138,14 +212,9 @@ class IMaotaiClient:
             )
 
             if resp.status_code == 429:
-                wait = 45 * (attempt + 1)
-                last_err = f"登录请求过于频繁(429)，请等待 {wait} 秒后重试"
-                logger.warning(last_err)
-                if attempt < 2:
-                    time.sleep(wait)
-                    continue
                 raise RateLimitError(
-                    last_err + "\n建议：稍后再试；勿连续多次发送验证码；可换手机热点。"
+                    "登录请求过于频繁(429)。请勿立即重试，否则限流会加重。\n"
+                    "建议：等待 5～15 分钟；勿重复发验证码；可换手机 4G 热点后再试。"
                 )
 
             if resp.status_code != 200:
@@ -178,7 +247,7 @@ class IMaotaiClient:
             time.mktime(datetime.date.today().timetuple()) * 1000
         )
         url = f"https://{STATIC_HOST}/mt-backend/xhr/front/mall/index/session/get/{day_ms}"
-        resp = requests.get(url, timeout=30)
+        resp = self._session.get(url, timeout=30)
         resp.raise_for_status()
         self.session_id = str(resp.json()["data"]["sessionId"])
         return self.session_id
@@ -199,11 +268,14 @@ class IMaotaiClient:
             if sid and sid != "0":
                 logger.info("场次 sessionId=%s", sid)
                 return sid
+            wait = poll_interval
+            if self.antidetect.enabled:
+                wait = max(2.0, poll_interval + poll_interval * random.uniform(-0.4, 0.4))
             logger.info(
-                "sessionId=0（非申购时段或未开放），%ds 后重试…",
-                poll_interval,
+                "sessionId=0（非申购时段或未开放），%.1fs 后重试…",
+                wait,
             )
-            time.sleep(poll_interval)
+            time.sleep(wait)
         raise SessionNotReadyError(
             f"在 {max_wait_seconds}s 内未获取到有效 sessionId。"
             "请确认当前为申购时段（通常 9:00–10:00）或稍后重试。"
@@ -256,9 +328,9 @@ class IMaotaiClient:
             "mt-lat": self.account.lat,
             "mt-lng": self.account.lng,
         }
-        res = requests.get(url, headers=h, timeout=30).json()
+        res = self._session.get(url, headers=h, timeout=30).json()
         shops_url = res["data"]["mtshops_pc"]["url"]
-        shops = requests.get(shops_url, timeout=60).json()
+        shops = self._session.get(shops_url, timeout=60).json()
 
         province_city_map: dict[str, dict[str, list[str]]] = {}
         for shop_id, info in shops.items():
@@ -275,7 +347,7 @@ class IMaotaiClient:
             f"https://{STATIC_HOST}/mt-backend/xhr/front/mall/shop/list/slim/v3/"
             f"{self.session_id}/{self.account.province}/{item_code}/{day_ms}"
         )
-        resp = requests.get(url, timeout=30)
+        resp = self._session.get(url, timeout=30)
         resp.raise_for_status()
         return resp.json().get("data", {}).get("shops", [])
 

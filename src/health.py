@@ -96,7 +96,12 @@ def run_health_check() -> HealthReport:
         add("ok", "账号", f"已加载 {len(accounts)} 个账号")
         app_ver = fetch_app_version()
         for acc in accounts:
-            client = IMaotaiClient(acc, app_version=app_ver)
+            client = IMaotaiClient(
+                acc,
+                app_version=app_ver,
+                proxy_pools=cfg.proxy_pools,
+                antidetect=cfg.antidetect,
+            )
             valid, msg = client.validate_token()
             label = mask_mobile(acc.mobile)
             add("ok" if valid else "fail", "账号", f"{label}: {msg}")
