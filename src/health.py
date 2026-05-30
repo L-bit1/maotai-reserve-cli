@@ -66,6 +66,20 @@ def run_health_check() -> HealthReport:
         add("warn", "配置", "amap_key 未填")
     add("ok", "配置", f"预约商品 {len(cfg.items)} 个")
 
+    ad = cfg.antidetect
+    if ad.enabled:
+        mode = "稳定指纹" if ad.stable_fingerprint else "会话随机"
+        add(
+            "ok",
+            "风控",
+            f"已开启 | {mode} | 发码间隔≥{ad.login_vcode_interval:.0f}s | "
+            f"预约≤{ad.max_reserve_per_minute}/分钟",
+        )
+        if len(cfg.proxy_pools) == 0:
+            add("warn", "风控", "未配置 proxy_pools，多账号同 IP 易被关联")
+    else:
+        add("warn", "风控", "antidetect.enabled=false，多账号风险较高")
+
     try:
         ver = fetch_app_version()
         add("ok", "网络", f"App 版本 {ver}")

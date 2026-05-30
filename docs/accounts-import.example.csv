@@ -1,0 +1,2 @@
+mobile,province,city,lat,lng,receiver_name,egress_group,shop_strategy,shop_id,remark
+13800138000,湖南省,长沙市,28.23,112.94,张三,ip001,max_inventory,,示例

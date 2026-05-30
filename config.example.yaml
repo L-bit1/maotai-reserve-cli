@@ -47,19 +47,26 @@ max_accounts_per_egress: 20
 # 是否在预约前领取小茅运/耐力（账号活跃度，需 App 内配合签到）
 claim_energy: true
 
-# ---------- 反检测（合并龙蒙超版，与本版捡漏/IP 并存）----------
-# enabled=false 可恢复为固定设备指纹（调试用）
+# ---------- 风控 / 反检测（详见 docs/风控系统说明.md）----------
 antidetect:
   enabled: true
+  # 每账号固定 UA+MT-Info（由 device_id 推导，登录后写入 credentials）
+  stable_fingerprint: true
   random_ua: true
   random_network_type: true
-  # 真机 MT-Info 通常固定；随机可能触发风控，默认关闭
   random_mt_info: false
   warmup_before_reserve: true
-  # claim_energy=true 时，按概率领取（0.3=约 30%），避免每天固定模式
   claim_energy_probability: 0.3
-  # 多账号预约时间错峰（秒），与 account_stagger_seconds 二选一优先
   jitter_seconds: 3.0
+  # 每次 API 前随机停顿（秒），模拟真人节奏
+  request_delay_min: 0.12
+  request_delay_max: 0.38
+  # 同一手机号两次发码最短间隔（秒）
+  login_vcode_interval: 90
+  # 预约/发码遇 429 后账号冷却（秒）
+  reserve_429_cooldown: 90
+  # 单账号每分钟最多预约请求次数
+  max_reserve_per_minute: 6
 
 # 定时：每天在此时间前 N 秒发起预约（申购窗口约 9:00-10:00）
 schedule:

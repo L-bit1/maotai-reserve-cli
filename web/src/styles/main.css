@@ -1,0 +1,42 @@
+:root {
+  --mt-primary: #c41e3a;
+  --mt-primary-dark: #9a1830;
+  --mt-bg: #f5f6f8;
+  --mt-sidebar: #1a1d24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--mt-bg);
+  color: #303133;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.stat-card {
+  border-radius: 12px;
+}
+
+.stat-card .value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--mt-primary);
+}
+
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+  .el-table {
+    font-size: 12px;
+  }
+}

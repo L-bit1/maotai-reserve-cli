@@ -40,15 +40,21 @@ class ScheduleConfig:
 
 @dataclass
 class AntidetectConfig:
-    """反检测（龙蒙超版能力 + 本版可配置开关）。"""
+    """反检测 / 风控（龙蒙超版 + 稳定指纹 + 节流）。"""
 
     enabled: bool = True
+    stable_fingerprint: bool = True
     random_ua: bool = True
     random_network_type: bool = True
     random_mt_info: bool = False
     warmup_before_reserve: bool = True
     claim_energy_probability: float = 0.3
     jitter_seconds: float = 3.0
+    request_delay_min: float = 0.12
+    request_delay_max: float = 0.38
+    login_vcode_interval: float = 90.0
+    reserve_429_cooldown: float = 90.0
+    max_reserve_per_minute: int = 6
 
 
 @dataclass
@@ -93,6 +99,9 @@ class AccountCredentials:
     shop_strategy: str = ""  # 可选：覆盖全局 shop_strategy
     proxy_url: str = ""  # 可选：本账号专用代理 http://或 socks5://
     egress_group: str = ""  # 可选：出口分组名，对应 config.proxy_pools
+    device_ua: str = ""  # 稳定设备 UA（登录后写入，勿手改）
+    device_mt_info: str = ""
+    device_network: str = ""
 
 
 def validate_secret_key(secret_key: str) -> None:
@@ -159,12 +168,18 @@ def load_config() -> AppConfig:
         egress_group_stagger_seconds=float(raw.get("egress_group_stagger_seconds", 2)),
         antidetect=AntidetectConfig(
             enabled=bool(ad.get("enabled", True)),
+            stable_fingerprint=bool(ad.get("stable_fingerprint", True)),
             random_ua=bool(ad.get("random_ua", True)),
             random_network_type=bool(ad.get("random_network_type", True)),
             random_mt_info=bool(ad.get("random_mt_info", False)),
             warmup_before_reserve=bool(ad.get("warmup_before_reserve", True)),
             claim_energy_probability=float(ad.get("claim_energy_probability", 0.3)),
             jitter_seconds=float(ad.get("jitter_seconds", 3.0)),
+            request_delay_min=float(ad.get("request_delay_min", 0.12)),
+            request_delay_max=float(ad.get("request_delay_max", 0.38)),
+            login_vcode_interval=float(ad.get("login_vcode_interval", 90)),
+            reserve_429_cooldown=float(ad.get("reserve_429_cooldown", 90)),
+            max_reserve_per_minute=int(ad.get("max_reserve_per_minute", 6)),
         ),
     )
 
@@ -213,11 +228,34 @@ def load_credentials(secret_key: str) -> list[AccountCredentials]:
                 shop_strategy=str(row.get("shop_strategy", "") or ""),
                 proxy_url=str(row.get("proxy_url", "") or row.get("proxy", "") or ""),
                 egress_group=str(row.get("egress_group", "") or ""),
+                device_ua=str(row.get("device_ua", "") or ""),
+                device_mt_info=str(row.get("device_mt_info", "") or ""),
+                device_network=str(row.get("device_network", "") or ""),
             )
         )
 
     if migrated and accounts:
         save_credentials(accounts, secret_key)
+
+    if accounts:
+        try:
+            from .risk_control import ensure_device_profile
+
+            cfg = load_config()
+            filled: list[AccountCredentials] = []
+            profile_changed = False
+            for a in accounts:
+                na = ensure_device_profile(a, cfg.antidetect)
+                if (na.device_ua or na.device_mt_info) and not (
+                    a.device_ua and a.device_mt_info
+                ):
+                    profile_changed = True
+                filled.append(na)
+            if profile_changed:
+                save_credentials(filled, secret_key)
+            accounts = filled
+        except Exception:
+            pass
 
     return accounts
 
@@ -252,6 +290,9 @@ def save_credentials(accounts: list[AccountCredentials], secret_key: str) -> Non
                 "shop_strategy": a.shop_strategy or "",
                 "proxy_url": a.proxy_url or "",
                 "egress_group": a.egress_group or "",
+                "device_ua": a.device_ua or "",
+                "device_mt_info": a.device_mt_info or "",
+                "device_network": a.device_network or "",
             }
             for a in accounts
         ],

@@ -1,0 +1,44 @@
+# 复制到 /etc/nginx/sites-available/maotai 并修改域名、路径
+# sudo ln -s /etc/nginx/sites-available/maotai /etc/nginx/sites-enabled/
+# sudo nginx -t && sudo systemctl reload nginx
+
+server {
+    listen 80;
+    server_name 你的域名.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name 你的域名.com;
+
+    # certbot 会自动填充 ssl_certificate 行，或手动配置
+    # ssl_certificate     /etc/letsencrypt/live/你的域名.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/你的域名.com/privkey.pem;
+
+    root /opt/maotai/web/dist;
+    index index.html;
+
+    # 前端 SPA
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 管理 API（仅反代到本机，不对公网暴露 8000）
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    # 可选：Swagger 仅内网或加 IP 白名单
+    # location /docs {
+    #     allow 你的办公公网IP;
+    #     deny all;
+    #     proxy_pass http://127.0.0.1:8000/docs;
+    # }
+}

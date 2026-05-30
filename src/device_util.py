@@ -47,6 +47,18 @@ def generate_mt_info() -> str:
     return hashlib.md5(os.urandom(16)).hexdigest()
 
 
+def profile_from_device_id(device_id: str) -> tuple[str, str, str]:
+    """
+    由 device_id 确定性生成 UA / MT-Info / 网络类型。
+    同一账号长期稳定，不同账号各不相同（优于每会话随机）。
+    """
+    seed = hashlib.sha256(device_id.strip().upper().encode()).digest()
+    ua = _IOS_UA_POOL[seed[0] % len(_IOS_UA_POOL)]
+    network = _NETWORK_TYPES[seed[1] % len(_NETWORK_TYPES)]
+    mt_info = hashlib.md5(seed[2:18]).hexdigest()
+    return ua, mt_info, network
+
+
 def make_mt_r(device_id: str) -> str:
     buf: list[str] = []
     xor_val = 72

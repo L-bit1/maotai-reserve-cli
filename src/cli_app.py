@@ -26,6 +26,13 @@ from .config_loader import (
 )
 from .exceptions import ConfigError
 from .health import run_health_check
+from .extras_runner import (
+    export_pending_csv,
+    notify_pending_payments,
+    query_lottery_all,
+    run_travel_all,
+    run_weekend_happy_buy,
+)
 from .runner import execute_reserve
 from .setup_form import run_account_setup
 
@@ -164,6 +171,9 @@ def _menu() -> str:
         ("5", "健康检查", ""),
         ("6", "查看配置", ""),
         ("7", "运行日志", ""),
+        ("8", "查询中签 / 待付款", "18:00 后查询，汇总待付"),
+        ("9", "周末欢乐购预约", "周日专场，与日常商品重合才约"),
+        ("10", "小茅运旅行", "领取奖励并开始旅行"),
         ("0", "退出", ""),
     ]
     t = Table(box=None, show_header=False, padding=(0, 1))
@@ -241,6 +251,48 @@ def _action_config() -> None:
     console.print(t)
 
 
+def _action_lottery() -> None:
+    def on_line(line: str) -> None:
+        c = "green" if "中签" in line or "待付款" in line else "white"
+        console.print(f"  [{c}]{line}[/]")
+
+    try:
+        with console.status("[bold green]查询申购结果…[/]"):
+            rows = query_lottery_all(today_only=Confirm.ask("仅查今日?", default=True), on_line=on_line)
+        pending = [r for r in rows if r.get("status") == "won" and r.get("payment_status") == "pending"]
+        console.print(f"\n[bold]待付款 {len(pending)} 笔[/]（须在 i茅台 App 内支付）")
+        if pending and Confirm.ask("PushPlus 推送待付款清单?", default=bool(load_config().pushplus_token)):
+            notify_pending_payments(rows)
+        if pending and Confirm.ask("导出 CSV?", default=False):
+            path = ROOT / "data" / "pending_payments.csv"
+            path.write_text(export_pending_csv(rows), encoding="utf-8-sig")
+            console.print(f"[green]已写入 {path}[/]")
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+
+
+def _action_weekend() -> None:
+    def on_line(line: str) -> None:
+        console.print(f"  {line}")
+
+    try:
+        with console.status("[bold green]周末欢乐购…[/]"):
+            run_weekend_happy_buy(on_line=on_line)
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+
+
+def _action_travel() -> None:
+    def on_line(line: str) -> None:
+        console.print(f"  {line}")
+
+    try:
+        with console.status("[bold green]旅行任务…[/]"):
+            run_travel_all(on_line=on_line)
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+
+
 def _action_logs() -> None:
     if not LOG_FILE.exists():
         console.print("[yellow]暂无日志[/]")
@@ -260,6 +312,9 @@ def _dispatch(key: str) -> bool:
         "5": _action_health,
         "6": _action_config,
         "7": _action_logs,
+        "8": _action_lottery,
+        "9": _action_weekend,
+        "10": _action_travel,
     }
     fn = actions.get(key)
     if fn:

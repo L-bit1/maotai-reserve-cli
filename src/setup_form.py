@@ -17,6 +17,7 @@ from .config_loader import (
 )
 from .exceptions import AuthError, RateLimitError
 from .geocode import geocode_address
+from .risk_control import ensure_device_profile
 
 console = Console()
 
@@ -111,7 +112,11 @@ def run_account_setup(cfg: AppConfig) -> None:
         lng=old.lng if old else "112.94",
         device_id=device_id,
     )
-    client = IMaotaiClient(placeholder, proxy_pools=cfg.proxy_pools)
+    client = IMaotaiClient(
+        placeholder,
+        proxy_pools=cfg.proxy_pools,
+        antidetect=cfg.antidetect,
+    )
 
     if old and old.token and Confirm.ask("已有登录，是否重新获取短信验证码登录?", default=False):
         token, user_id = old.token, old.user_id
@@ -193,7 +198,10 @@ def run_account_setup(cfg: AppConfig) -> None:
         district=district,
         detail_address=detail,
         pay_password=pay_pwd,
+        proxy_url=old.proxy_url if old else "",
+        egress_group=old.egress_group if old else "",
     )
+    account = ensure_device_profile(account, cfg.antidetect)
 
     accounts = [a for a in existing if a.mobile != mobile]
     accounts.append(account)
