@@ -22,14 +22,14 @@
 3. 等待 Gradle 同步完成
 4. 连接手机或模拟器 → Run `app`
 
-默认服务器：`http://139.155.134.97/api/v1/`（登录页可修改）
+默认服务器：`http://你的服务器/api/v1/`（登录页可修改）
 
 管理账号密码与 Web 相同（如 `admin` / 部署时设置的 `MT_ADMIN_PASSWORD`）。
 
 ## 与服务器关系
 
 ```text
-安卓 App  ──JWT──►  你们的 FastAPI（139.155.134.97）
+安卓 App  ──JWT──►  你们的 FastAPI（你的服务器）
                       ├── 存账号 Token、地址
                       ├── 定时/一键预约任务
                       ├── 代理池 proxy_pools（服务器配置）
@@ -60,7 +60,7 @@ sudo systemctl restart maotai-api
 ### 发布新版本（一条命令）
 
 ```bash
-export DEPLOY_HOST=139.155.134.97
+export DEPLOY_HOST=你的服务器
 export DEPLOY_USER=ubuntu
 export DEPLOY_PASS='你的SSH密码'
 export NEW_VERSION_CODE=2        # 必须大于旧版
@@ -76,7 +76,7 @@ export RELEASE_NOTES='修复登录；优化预约'
 ```env
 MT_APP_LATEST_VERSION_CODE=2
 MT_APP_LATEST_VERSION_NAME=1.0.1
-MT_APP_DOWNLOAD_URL=http://139.155.134.97/downloads/maotai-reserve.apk
+MT_APP_DOWNLOAD_URL=http://你的服务器/downloads/maotai-reserve.apk
 MT_APP_RELEASE_NOTES=更新说明
 MT_APP_FORCE_UPDATE=false
 ```
