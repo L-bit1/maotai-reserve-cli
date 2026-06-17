@@ -12,6 +12,9 @@
 
 # 以下即使匹配也永不提交
 **/.env
+scripts/kuaidaili.env
+data/kuaidaili_acceptance.log
+data/kuaidaili_acceptance_report.json
 **/config.yaml
 **/*credentials*
 **/*固定*IP*

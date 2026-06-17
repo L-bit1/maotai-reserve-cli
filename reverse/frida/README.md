@@ -9,7 +9,27 @@ pip install frida-tools
 # 手机侧：下载对应架构的 frida-server，adb push 后运行
 ```
 
+## 一键脚本（推荐）
+
+```bash
+# 1. 确认 USB 调试已授权
+bash reverse/scripts/adb_connect.sh
+
+# 2. 动态抓包（OkHttp + MD5 + KeyUtil + actParam 探测）
+bash reverse/scripts/run_frida_capture.sh
+```
+
+在 App 内操作：**发验证码 → 登录 → 进入预约 → 提交一次**，控制台会打印完整 Header/Body。
+
+Frida 使用项目内虚拟环境：`.venv-re/bin/frida`（已安装 17.x）。
+
 ## 用法
+
+### 0. 全链路抓包（推荐）
+
+```bash
+frida -U com.moutai.mall -l reverse/frida/hook_live_capture.js
+```
 
 ### 1. Hook 签名密钥（网易 KeyUtil）
 

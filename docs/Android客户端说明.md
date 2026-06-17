@@ -1,96 +1,74 @@
-# Android 客户端说明
+# Android 客户端说明（模式 B · 手机 Worker）
 
-面向 **单甲方、多 i茅台 账号**（如 1000 号）的手机管理 App，连接你们已部署的云服务器 API。
+面向 **业务员用手机** 完成 i茅台 **发码登录 + 预约**，数据同步到云服务器。  
+**i茅台 请求走手机 4G**，不经服务器公网 IP（避免 429）。
 
 ## 工程位置
 
-`android-app/` — Kotlin + Jetpack Compose + Retrofit
+`android-app/` — Kotlin + Jetpack Compose + Retrofit + 本机 i茅台客户端（`imaotai/`）
 
 ## 功能
 
 | 页签 | 功能 |
 |------|------|
-| 首页 | 账号统计、一键每日预约（全部启用账号） |
-| 账号 | 添加手机号、发验证码、短信登录、编辑地址/选店策略 |
-| 预约 | 立即预约、试跑、查看任务进度 |
-| 中签 | 同步中签、待付款列表、打开官方 i茅台 App |
+| 首页 | 统计、**等到 9 点本机预约**、立即预约、试跑 |
+| 账号 | 添加手机号、**本机发码**、**本机登录**、编辑地址/选店 |
+| 预约 | 本机立即预约 / 试跑；查看历史服务器任务 |
+| 中签 | 同步中签、待付款、打开官方 i茅台 App |
 
 ## 编译安装
 
-1. 安装 [Android Studio](https://developer.android.com/studio)（Ladybug 或更新）
-2. 打开目录 `android-app/`
-3. 等待 Gradle 同步完成
-4. 连接手机或模拟器 → Run `app`
+1. 安装 [Android Studio](https://developer.android.com/studio)
+2. 打开 `android-app/` → Gradle 同步 → Run
+3. 当前版本：**1.6.0**（`versionCode=7`：待登录列表、Wi-Fi 检测、9 点前台服务、nearest 选店）
 
-默认服务器：`http://你的服务器/api/v1/`（登录页可修改）
+默认服务器：`http://你的服务器/api/v1/`（登录页可改）
 
-管理账号密码与 Web 相同（如 `admin` / 部署时设置的 `MT_ADMIN_PASSWORD`）。
-
-## 与服务器关系
+## 架构（模式 B）
 
 ```text
-安卓 App  ──JWT──►  你们的 FastAPI（你的服务器）
-                      ├── 存账号 Token、地址
-                      ├── 定时/一键预约任务
-                      ├── 代理池 proxy_pools（服务器配置）
-                      └── 请求 i茅台官方
+安卓 App
+  ├── 蜂窝网 → i茅台官方（发码/登录/预约）
+  └── Wi-Fi/4G → 你们 FastAPI（JWT，存 Token、回写记录）
 ```
 
-用户 **不需要** 在手机上配置 SOCKS5；代理在服务器 `config.yaml` 维护。
+业务员 **不需要** 配置代理；请 **关闭 Wi-Fi，用 4G/5G** 操作发码与预约。
 
-## 后端新增接口（需部署到服务器）
+详细 SOP 见 **`docs/手机Worker模式B.md`**。
 
-- `GET /api/v1/mobile/dashboard` — 首页统计
-- `POST /api/v1/mobile/quick-reserve` — 一键预约
+## 后端接口（需部署）
 
-更新服务器代码后执行：
+| 接口 | 说明 |
+|------|------|
+| `GET /api/v1/mobile/dashboard` | 首页统计 |
+| `POST /api/v1/mobile/sync-login/{id}` | 本机登录同步 Token |
+| `GET /api/v1/mobile/worker-bundle` | 拉凭证执行预约 |
+| `POST /api/v1/mobile/report-reserve` | 回写预约结果 |
+| `POST /api/v1/mobile/quick-reserve` | 旧模式：服务器执行（易 429，不推荐） |
 
 ```bash
 sudo systemctl restart maotai-api
 ```
 
-## 应用内更新（方式 2）
-
-用户已安装的 App 在**打开时**会自动请求：
+## 应用内更新
 
 `GET /api/v1/app/check-update?version_code=当前版本`
 
-若服务器配置的 `versionCode` 更大，则弹窗 **下载 → 安装**。
-
-### 发布新版本（一条命令）
+发布：
 
 ```bash
-export DEPLOY_HOST=你的服务器
-export DEPLOY_USER=ubuntu
-export DEPLOY_PASS='你的SSH密码'
-export NEW_VERSION_CODE=2        # 必须大于旧版
-export NEW_VERSION_NAME=1.0.1
-export RELEASE_NOTES='修复登录；优化预约'
+export NEW_VERSION_CODE=5
+export NEW_VERSION_NAME=1.4.0
+export RELEASE_NOTES='模式B：本机发码登录与预约'
 ./scripts/publish-android-update.sh
 ```
 
-脚本会：改 `versionCode` → 编译 APK → 上传到服务器 `/opt/maotai/downloads/` → 更新 `deploy/.env` → 重启 API。
+## 与 Mac 本机脚本关系
 
-### 手动配置（服务器 `deploy/.env`）
+| 场景 | 工具 |
+|------|------|
+| 业务员现场 | Android App 模式 B |
+| 批量 50+ 号登录 | Mac `batch_local_login.py` |
+| 办公室定时抢 | Mac `local_worker.py` + 热点 |
 
-```env
-MT_APP_LATEST_VERSION_CODE=2
-MT_APP_LATEST_VERSION_NAME=1.0.1
-MT_APP_DOWNLOAD_URL=http://你的服务器/downloads/maotai-reserve.apk
-MT_APP_RELEASE_NOTES=更新说明
-MT_APP_FORCE_UPDATE=false
-```
-
-Nginx 需提供 `/downloads/` 目录（见 `deploy/nginx-ip.conf`）。
-
-### 签名说明
-
-覆盖安装需 **同一签名**。正式环境请固定 release keystore；debug 包换电脑重签可能需先卸载旧版。
-
-## 发布 APK（手动）
-
-Android Studio → Build → Build APK(s)
-
-或使用 `./scripts/publish-android-update.sh`
-
-正式环境建议：绑定域名 + HTTPS，并修改 `DEFAULT_API_BASE`。
+三者共用 `remote-login` / `worker-bundle` 同一套服务器 API。
